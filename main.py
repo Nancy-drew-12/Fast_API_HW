@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query
+from preprocessing import get_split_info
 
 from dataset import get_info, load_dataset, to_rows
 from schemas import DatasetRowChurn, FeatureVectorChurn
@@ -26,3 +27,7 @@ def dataset_preview(n: int = Query(5, ge=1, le=100)) -> list[DatasetRowChurn]:
 @app.get("/dataset/info")
 def dataset_info():
     return get_info(df)
+
+@app.get("/dataset/split-info")
+def dataset_split_info():
+    return get_split_info(df)
