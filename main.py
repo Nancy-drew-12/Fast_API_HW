@@ -4,7 +4,7 @@ from fastapi import Body, FastAPI, HTTPException, Query
 from dataset import get_info, load_dataset, to_rows
 from model import evaluate_model, load_churn_model, predict_churn, save_churn_model, train_churn_model
 from preprocessing import get_split_info, prepare_data, split_data
-from schemas import DatasetRowChurn, FeatureVectorChurn, PredictionResponseChurn
+from schemas import DatasetRowChurn, FeatureVectorChurn, PredictionResponseChurn, TrainingConfigChurn
 
 app = FastAPI()
 
@@ -105,21 +105,43 @@ def dataset_split_info():
     return get_split_info(require_dataset())
 
 
+TRAIN_EXAMPLES = {
+    "logreg_default": {
+        "summary": "Логистическая регрессия по умолчанию",
+        "value": {"model_type": "logreg", "hyperparameters": {}},
+    },
+    "logreg_custom": {
+        "summary": "Логистическая регрессия с регуляризацией C=0.1",
+        "value": {"model_type": "logreg", "hyperparameters": {"C": 0.1}},
+    },
+    "random_forest": {
+        "summary": "Случайный лес",
+        "value": {"model_type": "random_forest",
+                  "hyperparameters": {"n_estimators": 300, "max_depth": 6, "min_samples_leaf": 5}},
+    },
+}
+
+
 @app.post("/model/train")
-def train_model():
+def train_model(config: TrainingConfigChurn = Body(openapi_examples=TRAIN_EXAMPLES)):
     global model_bundle
     data = require_dataset()
 
     X, y = prepare_data(data)
     X_train, X_test, y_train, y_test = split_data(X, y)
 
-    pipeline = train_churn_model(X_train, y_train)
+    try:
+        pipeline, params = train_churn_model(X_train, y_train, config.model_type, config.hyperparameters)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=f"Неверные гиперпараметры: {error}")
+
     metrics = evaluate_model(pipeline, X_test, y_test)
-    model_bundle = save_churn_model(pipeline, metrics)
+    model_bundle = save_churn_model(pipeline, metrics, config.model_type, params)
 
     return {
         "status": "model trained and saved",
-        "model": "LogisticRegression",
+        "model_type": config.model_type,
+        "hyperparameters": params,
         "train_size": len(X_train),
         "test_size": len(X_test),
         "trained_at": model_bundle["trained_at"],
@@ -130,9 +152,12 @@ def train_model():
 @app.get("/model/status")
 def model_status():
     if model_bundle is None:
-        return {"is_trained": False, "trained_at": None, "metrics": None}
+        return {"is_trained": False, "model_type": None, "hyperparameters": None,
+                "trained_at": None, "metrics": None}
     return {
         "is_trained": True,
+        "model_type": model_bundle.get("model_type", "logreg"),
+        "hyperparameters": model_bundle.get("hyperparameters", {}),
         "trained_at": model_bundle["trained_at"],
         "metrics": model_bundle["metrics"],
     }
