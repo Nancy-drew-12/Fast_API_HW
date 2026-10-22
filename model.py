@@ -1,0 +1,49 @@
+import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+from preprocessing import CATEGORICAL_FEATURES, NUMERIC_FEATURES
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+
+
+def build_pipeline() -> Pipeline:
+    """Предобработка + модель в одном объекте."""
+    numeric = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler", StandardScaler()),
+    ])
+    categorical = Pipeline([
+        ("imputer", SimpleImputer(strategy="constant", fill_value="unknown")),
+        ("onehot", OneHotEncoder(handle_unknown="ignore")),
+    ])
+    preprocessor = ColumnTransformer([
+        ("num", numeric, NUMERIC_FEATURES),
+        ("cat", categorical, CATEGORICAL_FEATURES),
+    ])
+    return Pipeline([
+        ("preprocessor", preprocessor),
+        ("classifier", LogisticRegression(max_iter=1000, class_weight="balanced")),
+    ])
+
+
+def train_churn_model(X_train: pd.DataFrame, y_train: pd.Series) -> Pipeline:
+    """Обучает pipeline на тренировочных данных и возвращает его."""
+    pipeline = build_pipeline()
+    pipeline.fit(X_train, y_train)
+    return pipeline
+
+
+def evaluate_model(pipeline: Pipeline, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
+    """Считает accuracy и F1 на тестовой выборке."""
+    y_pred = pipeline.predict(X_test)
+    return {
+        "accuracy": round(accuracy_score(y_test, y_pred), 3),
+        "precision": round(precision_score(y_test, y_pred), 3),
+        "recall": round(recall_score(y_test, y_pred), 3),
+        "f1": round(f1_score(y_test, y_pred), 3),
+    }
+
