@@ -1,9 +1,16 @@
-import pandas as pd
 from fastapi import Body, FastAPI, HTTPException, Query
 
 from dataset import get_info, load_dataset, to_rows
 from model import evaluate_model, load_churn_model, predict_churn, save_churn_model, train_churn_model
-from preprocessing import get_split_info, prepare_data, split_data
+from preprocessing import (
+    CATEGORICAL_FEATURES,
+    FEATURE_COLUMNS,
+    NUMERIC_FEATURES,
+    features_to_dataframe,
+    get_split_info,
+    prepare_data,
+    split_data,
+)
 from schemas import DatasetRowChurn, FeatureVectorChurn, PredictionResponseChurn, TrainingConfigChurn
 
 app = FastAPI()
@@ -84,7 +91,7 @@ def predict(
     is_single = not isinstance(features, list)
     clients = [features] if is_single else features
 
-    X = pd.DataFrame([client.model_dump() for client in clients])
+    X = features_to_dataframe(clients)
     predictions = predict_churn(model_bundle["pipeline"], X)
 
     return predictions[0] if is_single else predictions
@@ -160,4 +167,35 @@ def model_status():
         "hyperparameters": model_bundle.get("hyperparameters", {}),
         "trained_at": model_bundle["trained_at"],
         "metrics": model_bundle["metrics"],
+    }
+
+
+@app.get("/model/schema")
+def model_schema():
+    properties = FeatureVectorChurn.model_json_schema()["properties"]
+
+    allowed_values = {}
+    if model_bundle is not None:
+        encoder = (model_bundle["pipeline"]
+                   .named_steps["preprocessor"]
+                   .named_transformers_["cat"]
+                   .named_steps["onehot"])
+        for column, categories in zip(CATEGORICAL_FEATURES, encoder.categories_):
+            allowed_values[column] = [str(value) for value in categories]
+
+    features = []
+    for name in FEATURE_COLUMNS:
+        feature = {
+            "name": name,
+            "type": properties[name]["type"],
+            "kind": "numeric" if name in NUMERIC_FEATURES else "categorical",
+        }
+        if name in allowed_values:
+            feature["known_values"] = allowed_values[name]
+        features.append(feature)
+
+    return {
+        "n_features": len(features),
+        "features": features,
+        "example": CLIENT_EXAMPLE,
     }

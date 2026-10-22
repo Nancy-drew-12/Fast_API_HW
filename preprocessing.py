@@ -18,18 +18,26 @@ CATEGORICAL_FEATURES = [
     "payment_method",
 ]
 
+FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES   # единый порядок признаков
+
 
 def prepare_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     """Отделяет X от y и заполняет пропуски."""
     df = df.dropna(subset=[TARGET])   # строки без ответа для обучения бесполезны
 
-    X = df[NUMERIC_FEATURES + CATEGORICAL_FEATURES].copy()
+    X = df[FEATURE_COLUMNS].copy()
     y = df[TARGET].astype(int)
 
     X[NUMERIC_FEATURES] = X[NUMERIC_FEATURES].fillna(X[NUMERIC_FEATURES].median())
     X[CATEGORICAL_FEATURES] = X[CATEGORICAL_FEATURES].fillna("unknown")
 
     return X, y
+
+
+def features_to_dataframe(clients: list) -> pd.DataFrame:
+    """Превращает список FeatureVectorChurn в DataFrame с тем же набором и порядком колонок, что при обучении."""
+    rows = [client.model_dump() for client in clients]
+    return pd.DataFrame(rows, columns=FEATURE_COLUMNS)
 
 
 def split_data(X: pd.DataFrame, y: pd.Series, test_size: float = 0.2, random_state: int = 42):
