@@ -1,14 +1,18 @@
+from datetime import datetime
+from pathlib import Path
+
+import joblib
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from preprocessing import CATEGORICAL_FEATURES, NUMERIC_FEATURES
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
+MODEL_PATH = Path(__file__).parent / "models" / "churn_model.joblib"
 
 def build_pipeline() -> Pipeline:
     """Предобработка + модель в одном объекте."""
@@ -47,3 +51,20 @@ def evaluate_model(pipeline: Pipeline, X_test: pd.DataFrame, y_test: pd.Series) 
         "f1": round(f1_score(y_test, y_pred), 3),
     }
 
+def save_churn_model(pipeline: Pipeline, metrics: dict, path: Path = MODEL_PATH) -> dict:
+    """Сохраняет модель вместе с датой обучения и метриками."""
+    bundle = {
+        "pipeline": pipeline,
+        "trained_at": datetime.now().isoformat(timespec="seconds"),
+        "metrics": metrics,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)   # создаём папку models, если её нет
+    joblib.dump(bundle, path)
+    return bundle
+
+
+def load_churn_model(path: Path = MODEL_PATH) -> dict | None:
+    """Загружает модель с диска. Если файла нет — возвращает None."""
+    if not path.exists():
+        return None
+    return joblib.load(path)

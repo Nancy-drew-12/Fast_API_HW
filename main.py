@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query
 
 from dataset import get_info, load_dataset, to_rows
-from model import evaluate_model, train_churn_model
+from model import evaluate_model, load_churn_model, save_churn_model, train_churn_model
 from preprocessing import get_split_info, prepare_data, split_data
 from schemas import DatasetRowChurn, FeatureVectorChurn
 
@@ -12,7 +12,10 @@ try:
 except FileNotFoundError:
     df = None             # файла нет — сервис всё равно запустится
 
-model = None              # здесь будет лежать обученный pipeline
+try:
+    model_bundle = load_churn_model()   # пробуем поднять модель, сохранённую в прошлый раз
+except Exception:
+    model_bundle = None                 # файл повреждён — начинаем без модели
 
 
 def require_dataset():
@@ -49,19 +52,32 @@ def dataset_split_info():
 
 @app.post("/model/train")
 def train_model():
-    global model
+    global model_bundle
     data = require_dataset()
 
     X, y = prepare_data(data)
     X_train, X_test, y_train, y_test = split_data(X, y)
 
-    model = train_churn_model(X_train, y_train)
-    metrics = evaluate_model(model, X_test, y_test)
+    pipeline = train_churn_model(X_train, y_train)
+    metrics = evaluate_model(pipeline, X_test, y_test)
+    model_bundle = save_churn_model(pipeline, metrics)
 
     return {
-        "status": "model trained",
+        "status": "model trained and saved",
         "model": "LogisticRegression",
         "train_size": len(X_train),
         "test_size": len(X_test),
+        "trained_at": model_bundle["trained_at"],
         "metrics": metrics,
+    }
+
+
+@app.get("/model/status")
+def model_status():
+    if model_bundle is None:
+        return {"is_trained": False, "trained_at": None, "metrics": None}
+    return {
+        "is_trained": True,
+        "trained_at": model_bundle["trained_at"],
+        "metrics": model_bundle["metrics"],
     }
