@@ -68,3 +68,16 @@ def load_churn_model(path: Path = MODEL_PATH) -> dict | None:
     if not path.exists():
         return None
     return joblib.load(path)
+
+def predict_churn(pipeline: Pipeline, X: pd.DataFrame) -> list[dict]:
+    """Класс и вероятности классов для каждого клиента."""
+    classes = pipeline.predict(X)            # [0, 1, ...]
+    probas = pipeline.predict_proba(X)       # [[p0, p1], [p0, p1], ...]
+    return [
+        {
+            "churn": int(cls),
+            "probability_no_churn": round(float(p[0]), 3),
+            "probability_churn": round(float(p[1]), 3),
+        }
+        for cls, p in zip(classes, probas)
+    ]

@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException, Query
+import pandas as pd
+from fastapi import Body, FastAPI, HTTPException, Query
 
 from dataset import get_info, load_dataset, to_rows
-from model import evaluate_model, load_churn_model, save_churn_model, train_churn_model
+from model import evaluate_model, load_churn_model, predict_churn, save_churn_model, train_churn_model
 from preprocessing import get_split_info, prepare_data, split_data
-from schemas import DatasetRowChurn, FeatureVectorChurn
+from schemas import DatasetRowChurn, FeatureVectorChurn, PredictionResponseChurn
 
 app = FastAPI()
 
@@ -30,9 +31,63 @@ def root():
     return {"message": "ml churn service is running"}
 
 
-@app.post("/predict")
-def predict(features: FeatureVectorChurn):
-    return features
+CLIENT_EXAMPLE = {
+    "monthly_fee": 25.5,
+    "usage_hours": 12,
+    "support_requests": 2,
+    "account_age_months": 8,
+    "failed_payments": 1,
+    "region": "europe",
+    "device_type": "tablet",
+    "payment_method": "card",
+    "autopay_enabled": 0,
+}
+
+PREDICT_EXAMPLES = {
+    "one_client": {
+        "summary": "Один клиент",
+        "value": CLIENT_EXAMPLE,
+    },
+    "several_clients": {
+        "summary": "Несколько клиентов",
+        "value": [
+            CLIENT_EXAMPLE,
+            {**CLIENT_EXAMPLE, "usage_hours": 35, "failed_payments": 0,
+             "account_age_months": 30, "autopay_enabled": 1},
+        ],
+    },
+}
+
+
+@app.post(
+    "/predict",
+    response_model=PredictionResponseChurn | list[PredictionResponseChurn],
+    responses={
+        200: {
+            "description": "Предсказанный класс и вероятности",
+            "content": {"application/json": {"example": {
+                "churn": 1, "probability_no_churn": 0.38, "probability_churn": 0.62,
+            }}},
+        },
+        400: {"description": "Модель ещё не обучена"},
+    },
+)
+def predict(
+    features: FeatureVectorChurn | list[FeatureVectorChurn] = Body(openapi_examples=PREDICT_EXAMPLES),
+):
+    if model_bundle is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Модель ещё не обучена. Сначала вызовите POST /model/train",
+        )
+
+    is_single = not isinstance(features, list)
+    clients = [features] if is_single else features
+
+    X = pd.DataFrame([client.model_dump() for client in clients])
+    predictions = predict_churn(model_bundle["pipeline"], X)
+
+    return predictions[0] if is_single else predictions
 
 
 @app.get("/dataset/preview")
