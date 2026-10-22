@@ -1,11 +1,11 @@
-from pydantic import BaseModel
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class FeatureVectorChurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")   # лишние признаки — ошибка, а не тихое игнорирование
+
     monthly_fee: float
     usage_hours: float
     support_requests: int
@@ -20,10 +20,12 @@ class FeatureVectorChurn(BaseModel):
 class DatasetRowChurn(FeatureVectorChurn):
     churn: int
 
+
 class PredictionResponseChurn(BaseModel):
     churn: int                    # предсказанный класс: 1 — уйдёт, 0 — останется
     probability_no_churn: float   # вероятность класса 0
     probability_churn: float      # вероятность класса 1
+
 
 class TrainingConfigChurn(BaseModel):
     model_type: Literal["logreg", "random_forest"] = "logreg"

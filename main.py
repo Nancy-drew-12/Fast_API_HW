@@ -1,6 +1,16 @@
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, Query
 
-from dataset import get_info, load_dataset, to_rows
+from dataset import TARGET, get_info, load_dataset, to_rows
+from errors import (
+    INTERNAL_EXAMPLE,
+    NO_DATASET_EXAMPLE,
+    NO_MODEL_EXAMPLE,
+    VALIDATION_EXAMPLE,
+    ErrorResponse,
+    ServiceError,
+    error_example,
+    register_error_handlers,
+)
 from model import evaluate_model, load_churn_model, predict_churn, save_churn_model, train_churn_model
 from preprocessing import (
     CATEGORICAL_FEATURES,
@@ -13,7 +23,8 @@ from preprocessing import (
 )
 from schemas import DatasetRowChurn, FeatureVectorChurn, PredictionResponseChurn, TrainingConfigChurn
 
-app = FastAPI()
+app = FastAPI(title="Churn prediction service")
+register_error_handlers(app)
 
 try:
     df = load_dataset()   # читаем датасет один раз при старте сервиса
@@ -27,10 +38,25 @@ except Exception:
 
 
 def require_dataset():
-    """Проверка: датасет загружен и не пустой."""
+    """Проверка: датасет загружен, не пустой и содержит все нужные колонки."""
     if df is None or df.empty:
-        raise HTTPException(status_code=400, detail="Датасет не загружен или пуст")
+        raise ServiceError("dataset_empty", "Датасет не загружен или пуст")
+
+    missing = [col for col in FEATURE_COLUMNS + [TARGET] if col not in df.columns]
+    if missing:
+        raise ServiceError(
+            "dataset_invalid",
+            "В датасете не хватает нужных колонок",
+            details={"missing_columns": missing},
+        )
     return df
+
+
+def require_model():
+    """Проверка: модель обучена."""
+    if model_bundle is None:
+        raise ServiceError("model_not_trained", "Модель ещё не обучена. Сначала вызовите POST /model/train")
+    return model_bundle
 
 
 @app.get("/")
@@ -76,23 +102,48 @@ PREDICT_EXAMPLES = {
                 "churn": 1, "probability_no_churn": 0.38, "probability_churn": 0.62,
             }}},
         },
-        400: {"description": "Модель ещё не обучена"},
+        400: {
+            "model": ErrorResponse,
+            "description": "Модель ещё не обучена",
+            "content": {"application/json": {"example": NO_MODEL_EXAMPLE}},
+        },
+        422: {
+            "model": ErrorResponse,
+            "description": "Неверные данные клиента: не тот тип, не хватает или лишний признак",
+            "content": {"application/json": {"examples": {
+                "wrong_type": {"summary": "Неверный тип значения", "value": VALIDATION_EXAMPLE},
+                "missing_feature": {"summary": "Не хватает признака", "value": error_example(
+                    "validation_error", "Неверные входные данные",
+                    [{"field": "region", "problem": "Field required", "input": {"...": "..."}}])},
+                "extra_feature": {"summary": "Лишний признак", "value": error_example(
+                    "validation_error", "Неверные входные данные",
+                    [{"field": "age", "problem": "Extra inputs are not permitted", "input": 30}])},
+            }}},
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Ошибка при расчёте предсказания",
+            "content": {"application/json": {"example": error_example(
+                "prediction_failed", "Не удалось получить предсказание модели")}},
+        },
     },
 )
 def predict(
     features: FeatureVectorChurn | list[FeatureVectorChurn] = Body(openapi_examples=PREDICT_EXAMPLES),
 ):
-    if model_bundle is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Модель ещё не обучена. Сначала вызовите POST /model/train",
-        )
+    bundle = require_model()
 
     is_single = not isinstance(features, list)
     clients = [features] if is_single else features
 
-    X = features_to_dataframe(clients)
-    predictions = predict_churn(model_bundle["pipeline"], X)
+    try:
+        X = features_to_dataframe(clients)
+        predictions = predict_churn(bundle["pipeline"], X)
+    except Exception as error:
+        raise ServiceError(
+            "prediction_failed", "Не удалось получить предсказание модели",
+            status_code=500, details=str(error),
+        )
 
     return predictions[0] if is_single else predictions
 
@@ -129,7 +180,37 @@ TRAIN_EXAMPLES = {
 }
 
 
-@app.post("/model/train")
+@app.post(
+    "/model/train",
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": "Пустой или некорректный датасет, неверные гиперпараметры",
+            "content": {"application/json": {"examples": {
+                "dataset_empty": {"summary": "Пустой датасет", "value": NO_DATASET_EXAMPLE},
+                "dataset_invalid": {"summary": "Не хватает колонок", "value": error_example(
+                    "dataset_invalid", "В датасете не хватает нужных колонок",
+                    {"missing_columns": ["region"]})},
+                "bad_hyperparameters": {"summary": "Неверные гиперпараметры", "value": error_example(
+                    "invalid_hyperparameters", "Неверные гиперпараметры модели",
+                    "RandomForestClassifier.__init__() got an unexpected keyword argument 'abc'")},
+            }}},
+        },
+        422: {
+            "model": ErrorResponse,
+            "description": "Неизвестный тип модели или неверный формат конфигурации",
+            "content": {"application/json": {"example": error_example(
+                "validation_error", "Неверные входные данные",
+                [{"field": "model_type", "problem": "Input should be 'logreg' or 'random_forest'",
+                  "input": "xgboost"}])}},
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Непредвиденная ошибка",
+            "content": {"application/json": {"example": INTERNAL_EXAMPLE}},
+        },
+    },
+)
 def train_model(config: TrainingConfigChurn = Body(openapi_examples=TRAIN_EXAMPLES)):
     global model_bundle
     data = require_dataset()
@@ -140,7 +221,7 @@ def train_model(config: TrainingConfigChurn = Body(openapi_examples=TRAIN_EXAMPL
     try:
         pipeline, params = train_churn_model(X_train, y_train, config.model_type, config.hyperparameters)
     except (TypeError, ValueError) as error:
-        raise HTTPException(status_code=400, detail=f"Неверные гиперпараметры: {error}")
+        raise ServiceError("invalid_hyperparameters", "Неверные гиперпараметры модели", details=str(error))
 
     metrics = evaluate_model(pipeline, X_test, y_test)
     model_bundle = save_churn_model(pipeline, metrics, config.model_type, params)
