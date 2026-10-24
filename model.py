@@ -84,7 +84,7 @@ def save_churn_model(
     metrics: dict,
     model_type: str,
     hyperparameters: dict,
-    path: Path = MODEL_PATH,
+    path: Path | None = None,
 ) -> dict:
     """Сохраняет модель вместе с типом, гиперпараметрами, датой обучения и метриками."""
     bundle = {
@@ -94,13 +94,15 @@ def save_churn_model(
         "trained_at": datetime.now().isoformat(timespec="seconds"),
         "metrics": metrics,
     }
+    path = path or MODEL_PATH                        # путь берём в момент вызова (удобно для тестов)
     path.parent.mkdir(parents=True, exist_ok=True)   # создаём папку models, если её нет
     joblib.dump(bundle, path)
     return bundle
 
 
-def load_churn_model(path: Path = MODEL_PATH) -> dict | None:
+def load_churn_model(path: Path | None = None) -> dict | None:
     """Загружает модель с диска. Если файла нет — возвращает None."""
+    path = path or MODEL_PATH
     if not path.exists():
         return None
     return joblib.load(path)

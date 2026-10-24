@@ -4,8 +4,9 @@ from pathlib import Path
 HISTORY_PATH = Path(__file__).parent / "models" / "training_history.json"
 
 
-def load_history(path: Path = HISTORY_PATH) -> list[dict]:
+def load_history(path: Path | None = None) -> list[dict]:
     """Читает историю обучений из JSON. Нет файла или он повреждён — пустая история."""
+    path = path or HISTORY_PATH
     if not path.exists():
         return []
     try:
@@ -14,8 +15,9 @@ def load_history(path: Path = HISTORY_PATH) -> list[dict]:
         return []
 
 
-def add_training_record(record: dict, path: Path = HISTORY_PATH) -> None:
+def add_training_record(record: dict, path: Path | None = None) -> None:
     """Добавляет запись об обучении в конец истории и сохраняет файл."""
+    path = path or HISTORY_PATH
     history = load_history(path)
     history.append(record)
     path.parent.mkdir(parents=True, exist_ok=True)
