@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import Body, FastAPI, Query
 
 from dataset import TARGET, get_info, load_dataset, to_rows
@@ -11,6 +13,7 @@ from errors import (
     error_example,
     register_error_handlers,
 )
+from history import add_training_record, best_record, filter_history, load_history
 from model import evaluate_model, load_churn_model, predict_churn, save_churn_model, train_churn_model
 from preprocessing import (
     CATEGORICAL_FEATURES,
@@ -226,6 +229,13 @@ def train_model(config: TrainingConfigChurn = Body(openapi_examples=TRAIN_EXAMPL
     metrics = evaluate_model(pipeline, X_test, y_test)
     model_bundle = save_churn_model(pipeline, metrics, config.model_type, params)
 
+    add_training_record({
+        "trained_at": model_bundle["trained_at"],
+        "model_type": config.model_type,
+        "hyperparameters": params,
+        "metrics": metrics,
+    })
+
     return {
         "status": "model trained and saved",
         "model_type": config.model_type,
@@ -279,4 +289,25 @@ def model_schema():
         "n_features": len(features),
         "features": features,
         "example": CLIENT_EXAMPLE,
+    }
+
+
+@app.get("/model/metrics")
+def model_metrics(
+    limit: int = Query(5, ge=1, le=100, description="Сколько последних записей вернуть"),
+    model_type: Literal["logreg", "random_forest"] | None = Query(None, description="Фильтр по типу модели"),
+):
+    history = load_history()
+    if not history:
+        raise ServiceError("no_training_history", "Модель ещё ни разу не обучалась. Вызовите POST /model/train")
+
+    filtered = filter_history(history, model_type)
+
+    return {
+        "latest": history[-1],
+        "total_trainings": len(history),
+        "filter": {"model_type": model_type},
+        "best_by_f1": best_record(filtered, "f1"),
+        "best_by_roc_auc": best_record(filtered, "roc_auc"),
+        "history": list(reversed(filtered[-limit:])),
     }

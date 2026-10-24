@@ -7,7 +7,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -67,13 +67,15 @@ def train_churn_model(
 
 
 def evaluate_model(pipeline: Pipeline, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
-    """Считает accuracy и F1 на тестовой выборке."""
+    """Считает метрики качества на тестовой выборке."""
     y_pred = pipeline.predict(X_test)
+    y_proba = pipeline.predict_proba(X_test)[:, 1]   # вероятность класса 1 — нужна для ROC-AUC
     return {
         "accuracy": round(accuracy_score(y_test, y_pred), 3),
         "precision": round(precision_score(y_test, y_pred), 3),
         "recall": round(recall_score(y_test, y_pred), 3),
         "f1": round(f1_score(y_test, y_pred), 3),
+        "roc_auc": round(roc_auc_score(y_test, y_proba), 3),
     }
 
 
