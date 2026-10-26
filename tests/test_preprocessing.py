@@ -1,8 +1,9 @@
 import numpy as np
 
-from dataset import load_dataset
-from preprocessing import FEATURE_COLUMNS, TARGET, features_to_dataframe, prepare_data, split_data
-from schemas import FeatureVectorChurn
+from app.core.config import FEATURE_COLUMNS, TARGET
+from app.ml.dataset import load_dataset
+from app.ml.preprocessing import features_to_dataframe, prepare_data, split_data
+from app.schemas import FeatureVectorChurn
 
 
 def test_real_dataset_loads_and_has_all_columns():

@@ -1,12 +1,12 @@
 import json
 from pathlib import Path
 
-HISTORY_PATH = Path(__file__).parent / "models" / "training_history.json"
+from app.core import config
 
 
 def load_history(path: Path | None = None) -> list[dict]:
-    """Читает историю обучений из JSON. Нет файла или он повреждён — пустая история."""
-    path = path or HISTORY_PATH
+    """Нет файла или он повреждён — пустая история."""
+    path = path or config.HISTORY_PATH
     if not path.exists():
         return []
     try:
@@ -16,8 +16,7 @@ def load_history(path: Path | None = None) -> list[dict]:
 
 
 def add_training_record(record: dict, path: Path | None = None) -> None:
-    """Добавляет запись об обучении в конец истории и сохраняет файл."""
-    path = path or HISTORY_PATH
+    path = path or config.HISTORY_PATH
     history = load_history(path)
     history.append(record)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -25,14 +24,12 @@ def add_training_record(record: dict, path: Path | None = None) -> None:
 
 
 def filter_history(history: list[dict], model_type: str | None = None) -> list[dict]:
-    """Оставляет записи только нужного типа модели (если тип задан)."""
     if model_type is None:
         return history
     return [record for record in history if record["model_type"] == model_type]
 
 
 def best_record(history: list[dict], metric: str = "f1") -> dict | None:
-    """Запись с лучшим значением метрики — чтобы сравнивать настройки."""
     if not history:
         return None
     return max(history, key=lambda record: record["metrics"].get(metric, 0))

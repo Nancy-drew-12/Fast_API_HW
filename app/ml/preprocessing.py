@@ -1,57 +1,39 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-TARGET = "churn"
-
-NUMERIC_FEATURES = [
-    "monthly_fee",
-    "usage_hours",
-    "support_requests",
-    "account_age_months",
-    "failed_payments",
-    "autopay_enabled",
-]
-
-CATEGORICAL_FEATURES = [
-    "region",
-    "device_type",
-    "payment_method",
-]
-
-FEATURE_COLUMNS = NUMERIC_FEATURES + CATEGORICAL_FEATURES   # единый порядок признаков
+from app.core.config import (
+    CATEGORICAL_FEATURES,
+    FEATURE_COLUMNS,
+    NUMERIC_FEATURES,
+    RANDOM_STATE,
+    TARGET,
+    TEST_SIZE,
+)
 
 
 def prepare_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     """Отделяет X от y и заполняет пропуски."""
-    df = df.dropna(subset=[TARGET])   # строки без ответа для обучения бесполезны
+    df = df.dropna(subset=[TARGET])
 
     X = df[FEATURE_COLUMNS].copy()
     y = df[TARGET].astype(int)
 
     X[NUMERIC_FEATURES] = X[NUMERIC_FEATURES].fillna(X[NUMERIC_FEATURES].median())
     X[CATEGORICAL_FEATURES] = X[CATEGORICAL_FEATURES].fillna("unknown")
-
     return X, y
 
 
 def features_to_dataframe(clients: list) -> pd.DataFrame:
-    """Превращает список FeatureVectorChurn в DataFrame с тем же набором и порядком колонок, что при обучении."""
-    rows = [client.model_dump() for client in clients]
-    return pd.DataFrame(rows, columns=FEATURE_COLUMNS)
+    """Список FeatureVectorChurn -> DataFrame с тем же порядком колонок, что при обучении."""
+    return pd.DataFrame([client.model_dump() for client in clients], columns=FEATURE_COLUMNS)
 
 
-def split_data(X: pd.DataFrame, y: pd.Series, test_size: float = 0.2, random_state: int = 42):
-    """Делит на train и test с сохранением доли оттока."""
-    return train_test_split(
-        X, y,
-        test_size=test_size,
-        random_state=random_state,
-        stratify=y,
-    )
+def split_data(X: pd.DataFrame, y: pd.Series, test_size: float = TEST_SIZE, random_state: int = RANDOM_STATE):
+    """Train/test со стратификацией: доля оттока одинакова в обеих частях."""
+    return train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
 
 
 def class_distribution(y: pd.Series) -> dict:
-    """Сколько объектов каждого класса и какая доля."""
     counts = y.value_counts().sort_index()
     shares = y.value_counts(normalize=True).sort_index()
     return {

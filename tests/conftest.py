@@ -3,9 +3,10 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-import history
-import main
-import model
+from app.api.examples import CLIENT_EXAMPLE
+from app.core import config
+from app.core.state import state
+from app.main import app
 
 
 @pytest.fixture
@@ -15,7 +16,6 @@ def synthetic_df() -> pd.DataFrame:
     n = 300
     usage_hours = rng.uniform(0, 40, n).round(1)
     failed_payments = rng.integers(0, 4, n)
-    # отток зависит от признаков, чтобы модели было чему учиться
     churn = ((usage_hours < 15) | (failed_payments >= 2)).astype(int)
     return pd.DataFrame({
         "monthly_fee": rng.uniform(5, 50, n).round(2),
@@ -35,13 +35,13 @@ def synthetic_df() -> pd.DataFrame:
 def client(synthetic_df, tmp_path, monkeypatch):
     """TestClient на синтетических данных. Модель и история пишутся во временную папку,
     поэтому тесты не трогают настоящие файлы в models/."""
-    monkeypatch.setattr(model, "MODEL_PATH", tmp_path / "churn_model.joblib")
-    monkeypatch.setattr(history, "HISTORY_PATH", tmp_path / "training_history.json")
-    monkeypatch.setattr(main, "df", synthetic_df)
-    monkeypatch.setattr(main, "model_bundle", None)
-    return TestClient(main.app, raise_server_exceptions=False)
+    monkeypatch.setattr(config, "MODEL_PATH", tmp_path / "churn_model.joblib")
+    monkeypatch.setattr(config, "HISTORY_PATH", tmp_path / "training_history.json")
+    monkeypatch.setattr(state, "dataset", synthetic_df)
+    monkeypatch.setattr(state, "model_bundle", None)
+    return TestClient(app, raise_server_exceptions=False)
 
 
 @pytest.fixture
 def client_example() -> dict:
-    return dict(main.CLIENT_EXAMPLE)
+    return dict(CLIENT_EXAMPLE)

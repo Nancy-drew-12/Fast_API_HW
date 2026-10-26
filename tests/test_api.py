@@ -1,6 +1,6 @@
 import pandas as pd
 
-import main
+from app.core.state import state
 
 
 # ---------- полный сценарий ----------
@@ -19,6 +19,12 @@ def test_health_before_and_after_training(client):
     after = client.get("/health").json()
     assert after["model_loaded"] is True
     assert after["status"] == "ok"
+
+
+def test_dataset_preview_returns_n_rows(client):
+    rows = client.get("/dataset/preview", params={"n": 3}).json()
+    assert len(rows) == 3
+    assert "churn" in rows[0]
 
 
 def test_dataset_info_on_synthetic_data(client):
@@ -77,6 +83,19 @@ def test_schema_lists_all_features(client):
     assert schema["n_features"] == 9
 
 
+def test_openapi_docs_are_generated(client):
+    paths = client.get("/openapi.json").json()["paths"]
+    assert {"/health", "/predict", "/model/train", "/model/metrics"} <= set(paths)
+
+
+def test_startup_without_files_starts_degraded(client, monkeypatch, tmp_path):
+    from app.core import config
+    monkeypatch.setattr(config, "DATA_PATH", tmp_path / "no_data.csv")
+    state.load()
+    assert state.dataset is None and state.model_bundle is None
+    assert client.get("/health").json()["status"] == "degraded"
+
+
 # ---------- обработка ошибок ----------
 
 def test_predict_without_model_returns_400(client, client_example):
@@ -127,14 +146,14 @@ def test_train_with_invalid_hyperparameters_returns_400(client):
 
 
 def test_train_on_empty_dataset_returns_400(client, monkeypatch):
-    monkeypatch.setattr(main, "df", pd.DataFrame())
+    monkeypatch.setattr(state, "dataset", pd.DataFrame())
     response = client.post("/model/train", json={})
     assert response.status_code == 400
     assert response.json()["code"] == "dataset_empty"
 
 
 def test_train_on_dataset_without_column_returns_400(client, monkeypatch, synthetic_df):
-    monkeypatch.setattr(main, "df", synthetic_df.drop(columns=["region"]))
+    monkeypatch.setattr(state, "dataset", synthetic_df.drop(columns=["region"]))
     response = client.post("/model/train", json={})
     assert response.status_code == 400
     assert response.json()["details"]["missing_columns"] == ["region"]

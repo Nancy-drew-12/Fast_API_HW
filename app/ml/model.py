@@ -11,9 +11,7 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from preprocessing import CATEGORICAL_FEATURES, NUMERIC_FEATURES
-
-MODEL_PATH = Path(__file__).parent / "models" / "churn_model.joblib"
+from app.core import config
 
 MODEL_CLASSES = {
     "logreg": LogisticRegression,
@@ -22,19 +20,17 @@ MODEL_CLASSES = {
 
 DEFAULT_HYPERPARAMETERS = {
     "logreg": {"max_iter": 1000, "class_weight": "balanced"},
-    "random_forest": {"n_estimators": 200, "class_weight": "balanced", "random_state": 42},
+    "random_forest": {"n_estimators": 200, "class_weight": "balanced", "random_state": config.RANDOM_STATE},
 }
 
 
 def create_model(model_type: str, hyperparameters: dict):
-    """Создаёт модель нужного типа: параметры по умолчанию + то, что прислал пользователь."""
+    """Параметры по умолчанию + то, что прислал пользователь (его значения важнее)."""
     params = {**DEFAULT_HYPERPARAMETERS[model_type], **hyperparameters}
-    model = MODEL_CLASSES[model_type](**params)
-    return model, params
+    return MODEL_CLASSES[model_type](**params), params
 
 
 def build_pipeline(classifier) -> Pipeline:
-    """Предобработка + модель в одном объекте."""
     numeric = Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler()),
@@ -44,13 +40,10 @@ def build_pipeline(classifier) -> Pipeline:
         ("onehot", OneHotEncoder(handle_unknown="ignore")),
     ])
     preprocessor = ColumnTransformer([
-        ("num", numeric, NUMERIC_FEATURES),
-        ("cat", categorical, CATEGORICAL_FEATURES),
+        ("num", numeric, config.NUMERIC_FEATURES),
+        ("cat", categorical, config.CATEGORICAL_FEATURES),
     ])
-    return Pipeline([
-        ("preprocessor", preprocessor),
-        ("classifier", classifier),
-    ])
+    return Pipeline([("preprocessor", preprocessor), ("classifier", classifier)])
 
 
 def train_churn_model(
@@ -59,7 +52,6 @@ def train_churn_model(
     model_type: str = "logreg",
     hyperparameters: dict | None = None,
 ) -> tuple[Pipeline, dict]:
-    """Обучает pipeline выбранного типа и возвращает его вместе с итоговыми гиперпараметрами."""
     classifier, params = create_model(model_type, hyperparameters or {})
     pipeline = build_pipeline(classifier)
     pipeline.fit(X_train, y_train)
@@ -67,9 +59,8 @@ def train_churn_model(
 
 
 def evaluate_model(pipeline: Pipeline, X_test: pd.DataFrame, y_test: pd.Series) -> dict:
-    """Считает метрики качества на тестовой выборке."""
     y_pred = pipeline.predict(X_test)
-    y_proba = pipeline.predict_proba(X_test)[:, 1]   # вероятность класса 1 — нужна для ROC-AUC
+    y_proba = pipeline.predict_proba(X_test)[:, 1]
     return {
         "accuracy": round(accuracy_score(y_test, y_pred), 3),
         "precision": round(precision_score(y_test, y_pred), 3),
@@ -94,24 +85,22 @@ def save_churn_model(
         "trained_at": datetime.now().isoformat(timespec="seconds"),
         "metrics": metrics,
     }
-    path = path or MODEL_PATH                        # путь берём в момент вызова (удобно для тестов)
-    path.parent.mkdir(parents=True, exist_ok=True)   # создаём папку models, если её нет
+    path = path or config.MODEL_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(bundle, path)
     return bundle
 
 
 def load_churn_model(path: Path | None = None) -> dict | None:
-    """Загружает модель с диска. Если файла нет — возвращает None."""
-    path = path or MODEL_PATH
+    path = path or config.MODEL_PATH
     if not path.exists():
         return None
     return joblib.load(path)
 
 
 def predict_churn(pipeline: Pipeline, X: pd.DataFrame) -> list[dict]:
-    """Класс и вероятности классов для каждого клиента."""
-    classes = pipeline.predict(X)            # [0, 1, ...]
-    probas = pipeline.predict_proba(X)       # [[p0, p1], [p0, p1], ...]
+    classes = pipeline.predict(X)
+    probas = pipeline.predict_proba(X)
     return [
         {
             "churn": int(cls),
@@ -120,3 +109,14 @@ def predict_churn(pipeline: Pipeline, X: pd.DataFrame) -> list[dict]:
         }
         for cls, p in zip(classes, probas)
     ]
+
+
+def known_categories(pipeline: Pipeline) -> dict[str, list[str]]:
+    """Значения категориальных признаков, которые модель видела при обучении."""
+    encoder = (pipeline.named_steps["preprocessor"]
+               .named_transformers_["cat"]
+               .named_steps["onehot"])
+    return {
+        column: [str(value) for value in categories]
+        for column, categories in zip(config.CATEGORICAL_FEATURES, encoder.categories_)
+    }

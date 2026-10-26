@@ -1,7 +1,7 @@
 import pytest
 
-from model import evaluate_model, load_churn_model, predict_churn, save_churn_model, train_churn_model
-from preprocessing import prepare_data, split_data
+from app.ml.model import evaluate_model, load_churn_model, predict_churn, save_churn_model, train_churn_model
+from app.ml.preprocessing import prepare_data, split_data
 
 
 @pytest.fixture

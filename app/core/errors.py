@@ -1,4 +1,4 @@
-import logging
+"""Единый формат ошибок и обработчики исключений."""
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -7,18 +7,17 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-logger = logging.getLogger("churn_service")
+from app.core.logging import logger
 
 
 class ErrorResponse(BaseModel):
-    """Единый формат ошибки для всех эндпоинтов."""
     code: str
     message: str
     details: Any = None
 
 
 class ServiceError(Exception):
-    """Наша собственная ошибка: код, понятное сообщение, HTTP-статус и подробности."""
+    """Ошибка сервиса: машинный код, понятное сообщение, HTTP-статус и подробности."""
 
     def __init__(self, code: str, message: str, status_code: int = 400, details: Any = None):
         self.code = code
@@ -42,11 +41,12 @@ async def http_error_handler(request: Request, exc: StarletteHTTPException):
     return error_json(exc.status_code, code, str(exc.detail))
 
 
-UNION_NOISE = {"list_type", "model_type", "model_attributes_type", "dict_type"}   # «шум» от варианта «один клиент ИЛИ список»
+# Ошибки-«шум» от варианта тела запроса «один клиент ИЛИ список клиентов»
+UNION_NOISE = {"list_type", "model_type", "model_attributes_type", "dict_type"}
 
 
 def clean_field(loc: tuple) -> str:
-    """('body', 'FeatureVectorChurn', 'usage_hours') → 'usage_hours'; ('body', 'list[...]', 0, 'region') → '0.region'."""
+    """('body', 'FeatureVectorChurn', 'usage_hours') -> 'usage_hours'; ('body', 'list[...]', 0, 'region') -> '0.region'."""
     parts = [str(p) for p in loc if p != "body" and "FeatureVectorChurn" not in str(p)]
     return ".".join(parts) or "body"
 
@@ -64,7 +64,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 
 async def unexpected_error_handler(request: Request, exc: Exception):
-    logger.exception("Unexpected error on %s", request.url.path)   # трассировка — только в лог
+    logger.exception("Unexpected error on %s", request.url.path)
     return error_json(500, "internal_error", "Внутренняя ошибка сервиса. Попробуйте позже")
 
 
@@ -73,16 +73,3 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, http_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(Exception, unexpected_error_handler)
-
-
-def error_example(code: str, message: str, details: Any = None) -> dict:
-    return {"code": code, "message": message, "details": details}
-
-
-NO_DATASET_EXAMPLE = error_example("dataset_empty", "Датасет не загружен или пуст")
-NO_MODEL_EXAMPLE = error_example("model_not_trained", "Модель ещё не обучена. Сначала вызовите POST /model/train")
-VALIDATION_EXAMPLE = error_example(
-    "validation_error", "Неверные входные данные",
-    [{"field": "usage_hours", "problem": "Input should be a valid number", "input": "много"}],
-)
-INTERNAL_EXAMPLE = error_example("internal_error", "Внутренняя ошибка сервиса. Попробуйте позже")
