@@ -1,3 +1,6 @@
+import logging
+import time
+from datetime import datetime
 from typing import Literal
 
 from fastapi import Body, FastAPI, Query
@@ -26,18 +29,33 @@ from preprocessing import (
 )
 from schemas import DatasetRowChurn, FeatureVectorChurn, PredictionResponseChurn, TrainingConfigChurn
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("churn_service")
+
 app = FastAPI(title="Churn prediction service")
 register_error_handlers(app)
+STARTED_AT = datetime.now().isoformat(timespec="seconds")
 
 try:
     df = load_dataset()   # читаем датасет один раз при старте сервиса
+    logger.info("Dataset loaded: %d rows, %d columns", df.shape[0], df.shape[1])
 except FileNotFoundError:
     df = None             # файла нет — сервис всё равно запустится
+    logger.warning("Dataset file not found, service starts without data")
 
 try:
     model_bundle = load_churn_model()   # пробуем поднять модель, сохранённую в прошлый раз
+    if model_bundle is None:
+        logger.info("No saved model found, train it via POST /model/train")
+    else:
+        logger.info("Model loaded: %s, trained at %s",
+                    model_bundle.get("model_type", "logreg"), model_bundle["trained_at"])
 except Exception:
     model_bundle = None                 # файл повреждён — начинаем без модели
+    logger.exception("Failed to load saved model, starting without it")
 
 
 def require_dataset():
@@ -65,6 +83,21 @@ def require_model():
 @app.get("/")
 def root():
     return {"message": "ml churn service is running"}
+
+
+@app.get("/health")
+def health():
+    dataset_loaded = df is not None and not df.empty
+    model_loaded = model_bundle is not None
+    return {
+        "status": "ok" if dataset_loaded and model_loaded else "degraded",
+        "dataset_loaded": dataset_loaded,
+        "dataset_rows": int(df.shape[0]) if dataset_loaded else 0,
+        "model_loaded": model_loaded,
+        "model_type": model_bundle.get("model_type", "logreg") if model_loaded else None,
+        "model_trained_at": model_bundle["trained_at"] if model_loaded else None,
+        "service_started_at": STARTED_AT,
+    }
 
 
 CLIENT_EXAMPLE = {
@@ -139,6 +172,7 @@ def predict(
     is_single = not isinstance(features, list)
     clients = [features] if is_single else features
 
+    start = time.perf_counter()
     try:
         X = features_to_dataframe(clients)
         predictions = predict_churn(bundle["pipeline"], X)
@@ -147,6 +181,10 @@ def predict(
             "prediction_failed", "Не удалось получить предсказание модели",
             status_code=500, details=str(error),
         )
+
+    duration_ms = (time.perf_counter() - start) * 1000
+    churn_count = sum(p["churn"] for p in predictions)
+    logger.info("Predict: %d client(s), %d predicted churn, %.1f ms", len(predictions), churn_count, duration_ms)
 
     return predictions[0] if is_single else predictions
 
@@ -218,6 +256,7 @@ def train_model(config: TrainingConfigChurn = Body(openapi_examples=TRAIN_EXAMPL
     global model_bundle
     data = require_dataset()
 
+    logger.info("Training started: model_type=%s, hyperparameters=%s", config.model_type, config.hyperparameters)
     X, y = prepare_data(data)
     X_train, X_test, y_train, y_test = split_data(X, y)
 
@@ -228,6 +267,7 @@ def train_model(config: TrainingConfigChurn = Body(openapi_examples=TRAIN_EXAMPL
 
     metrics = evaluate_model(pipeline, X_test, y_test)
     model_bundle = save_churn_model(pipeline, metrics, config.model_type, params)
+    logger.info("Training finished: model_type=%s, metrics=%s", config.model_type, metrics)
 
     add_training_record({
         "trained_at": model_bundle["trained_at"],

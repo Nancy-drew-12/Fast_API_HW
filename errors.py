@@ -33,6 +33,7 @@ def error_json(status_code: int, code: str, message: str, details: Any = None) -
 
 
 async def service_error_handler(request: Request, exc: ServiceError):
+    logger.warning("%s %s -> %s: %s", request.method, request.url.path, exc.code, exc.message)
     return error_json(exc.status_code, exc.code, exc.message, exc.details)
 
 
@@ -57,6 +58,8 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
         {"field": clean_field(err["loc"]), "problem": err["msg"], "input": err.get("input")}
         for err in meaningful
     ]
+    logger.warning("%s %s -> validation_error: %s", request.method, request.url.path,
+                   [d["field"] for d in details])
     return error_json(422, "validation_error", "Неверные входные данные", details)
 
 

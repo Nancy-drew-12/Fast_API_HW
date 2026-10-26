@@ -9,6 +9,18 @@ def test_root(client):
     assert client.get("/").json() == {"message": "ml churn service is running"}
 
 
+def test_health_before_and_after_training(client):
+    before = client.get("/health").json()
+    assert before["dataset_loaded"] is True
+    assert before["model_loaded"] is False
+    assert before["status"] == "degraded"
+
+    client.post("/model/train", json={})
+    after = client.get("/health").json()
+    assert after["model_loaded"] is True
+    assert after["status"] == "ok"
+
+
 def test_dataset_info_on_synthetic_data(client):
     info = client.get("/dataset/info").json()
     assert info["n_rows"] == 300
