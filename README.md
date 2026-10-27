@@ -52,20 +52,20 @@ The layers depend in one direction only: `api` → `ml` → `core`. The ML code 
 
 ## Dataset: `data/churn_dataset.csv`
 
-The file has one row per client: 2,000 rows and 10 columns.
+The dataset is provided by the course. It has one row per client: 2,000 rows, 10 columns and no missing values.
 
 | Column | Type | Description | Values |
 |---|---|---|---|
-| `monthly_fee` | float | Monthly subscription fee | 5 – 50 |
-| `usage_hours` | float | Hours of service usage per month | 0 – 40 |
+| `monthly_fee` | float | Monthly subscription fee (one of 4 tariffs) | `9.99`, `19.99`, `29.99`, `49.99` |
+| `usage_hours` | float | Hours of service usage per month | 0 – 52 |
 | `support_requests` | int | Number of support tickets | 0 – 4 |
-| `account_age_months` | int | How long the client has been with us | 1 – 35 |
+| `account_age_months` | int | How long the client has been with us | 1 – 39 |
 | `failed_payments` | int | Number of failed payments | 0 – 2 |
 | `region` | str | Client region | `europe`, `america`, `asia`, `africa` |
 | `device_type` | str | Main device | `mobile`, `desktop`, `tablet` |
 | `payment_method` | str | Payment method | `card`, `paypal`, `crypto` |
 | `autopay_enabled` | int | Autopay is on | 0 / 1 |
-| **`churn`** | int | **Target**: the client left | 0 / 1 (about 20% are 1) |
+| **`churn`** | int | **Target**: the client left | 0 / 1 (20.2% are 1) |
 
 **Preprocessing**
 
@@ -154,8 +154,8 @@ Response:
   "hyperparameters": {"max_iter": 1000, "class_weight": "balanced"},
   "train_size": 1600,
   "test_size": 400,
-  "trained_at": "2026-10-26T15:52:49",
-  "metrics": {"accuracy": 0.49, "precision": 0.175, "recall": 0.407, "f1": 0.244, "roc_auc": 0.469}
+  "trained_at": "2026-10-27T12:00:00",
+  "metrics": {"accuracy": "...", "precision": "...", "recall": "...", "f1": "...", "roc_auc": "..."}
 }
 ```
 
@@ -163,7 +163,7 @@ Response:
 - Your `hyperparameters` are merged on top of the defaults.
 - The model is saved to `models/churn_model.joblib`, and every run is appended to `models/training_history.json`.
 
-> The metrics above are modest. ROC-AUC is close to 0.5 because the features in this course dataset carry little signal. The focus of the project is the service around the model.
+- Metrics are computed on the 20% test split: accuracy, precision, recall, F1 for the churn class, and ROC-AUC. Because churn is only about 20% of clients, F1 and ROC-AUC say more than accuracy.
 
 ### Predict — `POST /predict`
 
@@ -180,8 +180,10 @@ curl -X POST http://127.0.0.1:8000/predict \
 ```
 
 ```json
-{"churn": 1, "probability_no_churn": 0.492, "probability_churn": 0.508}
+{"churn": 1, "probability_no_churn": 0.38, "probability_churn": 0.62}
 ```
+
+The numbers in the prediction examples are illustrative. Real values depend on the trained model.
 
 Predict for several clients by sending a list:
 
@@ -200,8 +202,8 @@ curl -X POST http://127.0.0.1:8000/predict \
 
 ```json
 [
-  {"churn": 1, "probability_no_churn": 0.492, "probability_churn": 0.508},
-  {"churn": 0, "probability_no_churn": 0.563, "probability_churn": 0.437}
+  {"churn": 1, "probability_no_churn": 0.38, "probability_churn": 0.62},
+  {"churn": 0, "probability_no_churn": 0.71, "probability_churn": 0.29}
 ]
 ```
 
